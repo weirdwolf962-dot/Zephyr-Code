@@ -5,14 +5,18 @@ import { formatRelativeTime } from "../utils/projects";
 interface LandingScreenProps {
   projects: Project[];
   onSubmit: (prompt: string) => void;
+  onDeleteProject: (id: string) => void;
 }
 
-export default function LandingScreen({ projects, onSubmit }: LandingScreenProps) {
+export default function LandingScreen({ projects, onSubmit, onDeleteProject }: LandingScreenProps) {
   const [value, setValue] = useState("");
+  const [submitting, setSubmitting] = useState(false);
 
   function submit() {
+    if (submitting) return; // blocks a second Enter/click before the screen changes
     const text = value.trim();
     if (!text) return;
+    setSubmitting(true);
     onSubmit(text);
   }
 
@@ -30,6 +34,7 @@ export default function LandingScreen({ projects, onSubmit }: LandingScreenProps
             style={styles.textarea}
             placeholder="Describe an app and let Zephyr do the rest…"
             value={value}
+            disabled={submitting}
             onChange={(e) => setValue(e.target.value)}
             onKeyDown={(e) => {
               if (e.key === "Enter" && !e.shiftKey) {
@@ -44,7 +49,7 @@ export default function LandingScreen({ projects, onSubmit }: LandingScreenProps
               <span style={styles.iconButton} title="Voice (not wired yet)">🎤</span>
               <span style={styles.iconButton} title="Attach (not wired yet)">＋</span>
             </div>
-            <button style={styles.sendButton} onClick={submit} disabled={!value.trim()}>
+            <button style={styles.sendButton} onClick={submit} disabled={!value.trim() || submitting}>
               ↑
             </button>
           </div>
@@ -62,6 +67,13 @@ export default function LandingScreen({ projects, onSubmit }: LandingScreenProps
                 <span style={styles.projectDot} />
                 <span style={styles.projectName}>{p.name}</span>
                 <span style={styles.projectTime}>{formatRelativeTime(p.createdAt)}</span>
+                <button
+                  style={styles.deleteButton}
+                  onClick={() => onDeleteProject(p.id)}
+                  title="Delete project"
+                >
+                  ✕
+                </button>
               </div>
             ))}
           </div>
@@ -209,5 +221,15 @@ const styles: Record<string, React.CSSProperties> = {
     fontSize: "11px",
     color: "rgba(255,255,255,0.3)",
     flexShrink: 0,
+  },
+  deleteButton: {
+    flexShrink: 0,
+    background: "transparent",
+    border: "none",
+    color: "rgba(255,255,255,0.25)",
+    fontSize: "12px",
+    cursor: "pointer",
+    padding: "4px 6px",
+    borderRadius: "6px",
   },
 };

@@ -28,6 +28,11 @@ export function saveProject(name: string): Project {
   return project;
 }
 
+export function deleteProject(id: string): void {
+  const projects = loadProjects().filter((p) => p.id !== id);
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(projects));
+}
+
 export function formatRelativeTime(timestamp: number): string {
   const diffMs = Date.now() - timestamp;
   const mins = Math.floor(diffMs / 60000);

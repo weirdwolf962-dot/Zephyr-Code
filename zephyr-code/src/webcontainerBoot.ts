@@ -61,9 +61,25 @@ export interface BootCallbacks {
 }
 
 let container: WebContainer | null = null;
+let containerPromise: Promise<WebContainer> | null = null;
 
 export function getContainer(): WebContainer | null {
   return container;
+}
+
+// Single-flight guard: WebContainer only allows ONE instance per page.
+// If two callers race to boot before the first resolves, calling
+// WebContainer.boot() twice deadlocks the whole runtime. Caching the
+// PROMISE (not just the resolved container) means a second concurrent
+// call just awaits the same in-flight boot instead of starting another.
+function getOrBootContainer(): Promise<WebContainer> {
+  if (!containerPromise) {
+    containerPromise = WebContainer.boot().catch((err) => {
+      containerPromise = null; // let the next attempt try again
+      throw err;
+    });
+  }
+  return containerPromise;
 }
 
 export async function bootHelloWorld({ onLog, onStageChange, onPreviewReady }: BootCallbacks) {
@@ -77,7 +93,7 @@ export async function bootHelloWorld({ onLog, onStageChange, onPreviewReady }: B
   try {
     onStageChange("booting");
     onLog("Booting WebContainer runtime…");
-    container = container ?? (await WebContainer.boot());
+    container = await getOrBootContainer();
     onLog("✅ WebContainer booted.");
 
     onStageChange("mounting");

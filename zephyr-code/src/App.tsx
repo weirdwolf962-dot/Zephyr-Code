@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { bootHelloWorld, getContainer, type BootStage } from "./webcontainerBoot";
 import { readAllFiles, downloadAsZip, type FlatFile } from "./fileTree";
-import { loadProjects, saveProject, type Project } from "./utils/projects";
+import { loadProjects, saveProject, deleteProject, type Project } from "./utils/projects";
 import LandingScreen from "./screens/LandingScreen";
 import Workspace, { type ChatMessage } from "./screens/Workspace";
 import LogConsole from "./components/LogConsole";
@@ -82,9 +82,15 @@ export default function App() {
   }
 
   function handleLandingSubmit(prompt: string) {
+    if (screen === "building") return; // already mid-boot — ignore a stray second submit
     const project = saveProject(prompt);
     setProjects((prev) => [project, ...prev]);
     runBoot(prompt);
+  }
+
+  function handleDeleteProject(id: string) {
+    deleteProject(id);
+    setProjects((prev) => prev.filter((p) => p.id !== id));
   }
 
   function handleChatSend(text: string) {
@@ -138,24 +144,28 @@ export default function App() {
           <span style={styles.brandName}>Zephyr Code</span>
         </button>
         <div style={styles.headerRight}>
-          <button
-            style={{ ...styles.iconButton, opacity: ready ? 1 : 0.4, cursor: ready ? "pointer" : "not-allowed" }}
-            onClick={handleDownload}
-            disabled={!ready || isZipping}
-            title={ready ? "Download project as .zip" : "Available once a preview is ready"}
-          >
-            {isZipping ? "…" : "⬇"}
-          </button>
-          <button style={styles.exitButton} onClick={exitToZephyr}>
-            ← Exit to Zephyr
-          </button>
+          {screen !== "landing" && (
+            <>
+              <button
+                style={{ ...styles.iconButton, opacity: ready ? 1 : 0.4, cursor: ready ? "pointer" : "not-allowed" }}
+                onClick={handleDownload}
+                disabled={!ready || isZipping}
+                title={ready ? "Download project as .zip" : "Available once a preview is ready"}
+              >
+                {isZipping ? "…" : "⬇"}
+              </button>
+              <button style={styles.exitButton} onClick={exitToZephyr}>
+                ← Exit to Zephyr
+              </button>
+            </>
+          )}
         </div>
       </header>
 
       {/* Body */}
       <main style={styles.main}>
         {screen === "landing" && (
-          <LandingScreen projects={projects} onSubmit={handleLandingSubmit} />
+          <LandingScreen projects={projects} onSubmit={handleLandingSubmit} onDeleteProject={handleDeleteProject} />
         )}
 
         {screen === "building" && (
