@@ -9,6 +9,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@monaco-editor/react": "^4.6.0",
     "@webcontainer/api": "^1.5.1",
     "jszip": "^3.10.1",
     "react": "^18.3.1",
