@@ -62,6 +62,10 @@ export interface BootCallbacks {
 
 let container: WebContainer | null = null;
 
+export function getContainer(): WebContainer | null {
+  return container;
+}
+
 export async function bootHelloWorld({ onLog, onStageChange, onPreviewReady }: BootCallbacks) {
   if (typeof crossOriginIsolated !== "undefined" && !crossOriginIsolated) {
     onStageChange("error");
