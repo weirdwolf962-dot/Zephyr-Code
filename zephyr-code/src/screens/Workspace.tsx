@@ -3,6 +3,7 @@ import Editor, { type OnMount } from "@monaco-editor/react";
 import type { FlatFile } from "../fileTree";
 import { languageFromPath } from "../utils/language";
 import { SaveIcon } from "../components/icons";
+import BuildConsole from "../components/BuildConsole";
 
 export type ChatRole = "user" | "assistant" | "log";
 export interface ChatMessage {
@@ -18,6 +19,8 @@ interface WorkspaceProps {
   previewNonce: number;
   files: FlatFile[];
   onSaveFile: (path: string, contents: string) => Promise<void>;
+  logs: string[];
+  onClearLogs: () => void;
 }
 
 type SaveState = "idle" | "dirty" | "saving" | "saved";
@@ -30,6 +33,8 @@ export default function Workspace({
   previewNonce,
   files,
   onSaveFile,
+  logs,
+  onClearLogs,
 }: WorkspaceProps) {
   const [input, setInput] = useState("");
   const [viewMode, setViewMode] = useState<"preview" | "code">("preview");
@@ -147,71 +152,76 @@ export default function Workspace({
               </div>
             )
           ) : (
-            <div style={styles.codeView}>
-              <div style={styles.fileExplorer}>
-                <p style={styles.fileExplorerLabel}>File explorer</p>
-                {files.map((f) => {
-                  const dirty = buffers[f.path] !== undefined && buffers[f.path] !== f.contents;
-                  return (
-                    <button
-                      key={f.path}
-                      onClick={() => setActiveFilePath(f.path)}
-                      style={{
-                        ...styles.fileItem,
-                        background: f.path === activeFilePath ? "rgba(255,78,0,0.14)" : "transparent",
-                        color: f.path === activeFilePath ? "#ffb677" : "rgba(255,255,255,0.6)",
-                      }}
-                    >
-                      {f.path}
-                      {dirty && <span style={styles.dirtyDot}>●</span>}
-                    </button>
-                  );
-                })}
-              </div>
+            <div style={styles.codeTab}>
+              <div style={styles.codeView}>
+                <div style={styles.fileExplorer}>
+                  <p style={styles.fileExplorerLabel}>File explorer</p>
+                  {files.map((f) => {
+                    const dirty = buffers[f.path] !== undefined && buffers[f.path] !== f.contents;
+                    return (
+                      <button
+                        key={f.path}
+                        onClick={() => setActiveFilePath(f.path)}
+                        style={{
+                          ...styles.fileItem,
+                          background: f.path === activeFilePath ? "rgba(255,78,0,0.14)" : "transparent",
+                          color: f.path === activeFilePath ? "#ffb677" : "rgba(255,255,255,0.6)",
+                        }}
+                      >
+                        {f.path}
+                        {dirty && <span style={styles.dirtyDot}>●</span>}
+                      </button>
+                    );
+                  })}
+                </div>
 
-              <div style={styles.editorArea}>
-                {activeFile && (
-                  <div style={styles.editorTab}>
-                    <span>{activeFile.path}</span>
-                    <button
-                      style={{
-                        ...styles.saveButton,
-                        opacity: isDirty || saveState === "saving" ? 1 : 0.35,
-                        cursor: isDirty && saveState !== "saving" ? "pointer" : "default",
-                      }}
-                      onClick={handleSaveActive}
-                      disabled={!isDirty || saveState === "saving"}
-                      title="Save (Ctrl/Cmd+S) — writes to the WebContainer and reloads the preview"
-                    >
-                      <SaveIcon size={12} />
-                      {saveState === "saving" ? "Saving…" : saveState === "saved" ? "Saved" : "Save"}
-                    </button>
-                  </div>
-                )}
-                <div style={{ flex: 1, minHeight: 0 }}>
-                  {activeFile ? (
-                    <Editor
-                      key={activeFile.path}
-                      language={languageFromPath(activeFile.path)}
-                      value={bufferValue}
-                      theme="vs-dark"
-                      onChange={handleEditorChange}
-                      onMount={handleEditorMount}
-                      options={{
-                        fontSize: 12.5,
-                        fontFamily: "JetBrains Mono, monospace",
-                        minimap: { enabled: false },
-                        scrollBeyondLastLine: false,
-                        automaticLayout: true,
-                      }}
-                    />
-                  ) : (
-                    <div style={styles.previewPlaceholder}>
-                      <p style={styles.placeholderText}>Select a file to view it.</p>
+                <div style={styles.editorArea}>
+                  {activeFile && (
+                    <div style={styles.editorTab}>
+                      <span>{activeFile.path}</span>
+                      <button
+                        style={{
+                          ...styles.saveButton,
+                          opacity: isDirty || saveState === "saving" ? 1 : 0.35,
+                          cursor: isDirty && saveState !== "saving" ? "pointer" : "default",
+                        }}
+                        onClick={handleSaveActive}
+                        disabled={!isDirty || saveState === "saving"}
+                        title="Save (Ctrl/Cmd+S) — writes to the WebContainer and reloads the preview"
+                      >
+                        <SaveIcon size={12} />
+                        {saveState === "saving" ? "Saving…" : saveState === "saved" ? "Saved" : "Save"}
+                      </button>
                     </div>
                   )}
+                  <div style={{ flex: 1, minHeight: 0 }}>
+                    {activeFile ? (
+                      <Editor
+                        key={activeFile.path}
+                        language={languageFromPath(activeFile.path)}
+                        value={bufferValue}
+                        theme="vs-dark"
+                        onChange={handleEditorChange}
+                        onMount={handleEditorMount}
+                        options={{
+                          fontSize: 12.5,
+                          fontFamily: "JetBrains Mono, monospace",
+                          minimap: { enabled: false },
+                          scrollBeyondLastLine: false,
+                          automaticLayout: true,
+                        }}
+                      />
+                    ) : (
+                      <div style={styles.previewPlaceholder}>
+                        <p style={styles.placeholderText}>Select a file to view it.</p>
+                      </div>
+                    )}
+                  </div>
                 </div>
               </div>
+
+              {/* Scrolling build-output panel, below the code view */}
+              <BuildConsole logs={logs} onClear={onClearLogs} />
             </div>
           )}
         </div>
@@ -336,6 +346,7 @@ const styles: Record<string, React.CSSProperties> = {
     justifyContent: "center",
   },
   placeholderText: { color: "rgba(255,255,255,0.3)", fontSize: "13px" },
+  codeTab: { flex: 1, display: "flex", flexDirection: "column", minHeight: 0 },
   codeView: { flex: 1, display: "flex", minHeight: 0 },
   fileExplorer: {
     width: "220px",
