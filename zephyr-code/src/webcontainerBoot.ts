@@ -1,6 +1,16 @@
 import { WebContainer } from "@webcontainer/api";
 import type { FileSystemTree } from "@webcontainer/api";
 
+// npm/node write raw ANSI escape sequences (cursor moves, color codes) into
+// their output stream — fine for a real terminal, unreadable as plain text
+// in a log panel. Strip them before anything reaches onLog.
+// eslint-disable-next-line no-control-regex
+const ANSI_PATTERN = /[\u001B\u009B][[\]()#;?]*(?:(?:(?:[a-zA-Z0-9]*(?:;[a-zA-Z0-9]*)*)?\u0007)|(?:(?:\d{1,4}(?:;\d{0,4})*)?[0-9A-PR-TZcf-ntqry=><~]))/g;
+
+function cleanLine(raw: string): string {
+  return raw.replace(ANSI_PATTERN, "").trimEnd();
+}
+
 // ── Hardcoded hello-world project ───────────────────────────────────────────
 // A plain Node http server — no framework, no build step — so this test
 // proves WebContainers itself works before anything AI-generated touches it.
@@ -116,7 +126,10 @@ export async function bootHelloWorld({ onLog, onStageChange, onPreviewReady }: B
     const install = await container.spawn("npm", ["install"]);
     install.output.pipeTo(
       new WritableStream({
-        write: (data) => onLog(data.toString().trimEnd()),
+        write: (data) => {
+          const line = cleanLine(data.toString());
+          if (line) onLog(line);
+        },
       })
     );
     const installExit = await install.exit;
@@ -142,7 +155,10 @@ export async function bootHelloWorld({ onLog, onStageChange, onPreviewReady }: B
     const dev = await container.spawn("npm", ["run", "dev"]);
     dev.output.pipeTo(
       new WritableStream({
-        write: (data) => onLog(data.toString().trimEnd()),
+        write: (data) => {
+          const line = cleanLine(data.toString());
+          if (line) onLog(line);
+        },
       })
     );
   } catch (err) {
