@@ -11,7 +11,7 @@ const helloWorldFiles: FileSystemTree = {
         {
           name: "zephyr-code-hello-world",
           type: "module",
-          scripts: { dev: "node server.js" },
+          scripts: { dev: "node --watch server.js" },
         },
         null,
         2
@@ -62,9 +62,19 @@ export interface BootCallbacks {
 
 let container: WebContainer | null = null;
 let containerPromise: Promise<WebContainer> | null = null;
+let unsubscribeServerReady: (() => void) | null = null;
 
 export function getContainer(): WebContainer | null {
   return container;
+}
+
+// Writes one file into the live container. This is the loop a human
+// (and later, the AI) uses to make a change: write -> node --watch
+// notices the file changed -> restarts the server -> "server-ready"
+// fires again -> the preview iframe refreshes automatically.
+export async function writeFile(path: string, contents: string): Promise<void> {
+  if (!container) throw new Error("WebContainer isn't booted yet.");
+  await container.fs.writeFile(path, contents);
 }
 
 // Single-flight guard: WebContainer only allows ONE instance per page.
@@ -117,7 +127,11 @@ export async function bootHelloWorld({ onLog, onStageChange, onPreviewReady }: B
     }
     onLog("✅ npm install complete.");
 
-    container.on("server-ready", (_port, url) => {
+    // server-ready fires on first boot AND every time --watch restarts the
+    // server after a save — that repeat firing is exactly what drives the
+    // preview auto-refresh. Only one listener should ever be active at once.
+    unsubscribeServerReady?.();
+    unsubscribeServerReady = container.on("server-ready", (_port, url) => {
       onStageChange("ready");
       onLog(`✅ Server ready at ${url}`);
       onPreviewReady(url);
