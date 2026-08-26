@@ -5,7 +5,7 @@ import { loadProjects, saveProject, deleteProject, type Project } from "./utils/
 import LandingScreen from "./screens/LandingScreen";
 import Workspace, { type ChatMessage } from "./screens/Workspace";
 import LogConsole from "./components/LogConsole";
-import { DownloadIcon } from "./components/icons";
+import { DownloadIcon, HomeIcon } from "./components/icons";
 
 /**
  * Zephyr Code — standalone shell.
@@ -136,6 +136,10 @@ export default function App() {
     setFiles((prev) => prev.map((f) => (f.path === path ? { ...f, contents } : f)));
   }
 
+  function handleClearLogs() {
+    setLogs([]);
+  }
+
   async function handleDownload() {
     const container = getContainer();
     if (!container) return;
@@ -152,13 +156,20 @@ export default function App() {
     <div style={styles.page}>
       {/* Header */}
       <header style={styles.header}>
-        <button style={styles.brand} onClick={() => setScreen("landing")} title="Back to start">
+        <button style={styles.brand} onClick={() => setScreen("landing")} title="Home — Zephyr Code's start screen">
           <span style={styles.brandMark}>⟨/⟩</span>
           <span style={styles.brandName}>Zephyr Code</span>
         </button>
         <div style={styles.headerRight}>
           {screen !== "landing" && (
             <>
+              <button
+                style={styles.iconButton}
+                onClick={() => setScreen("landing")}
+                title="Home — go to Zephyr Code's start screen (stays inside Zephyr Code)"
+              >
+                <HomeIcon size={15} />
+              </button>
               <button
                 style={{ ...styles.iconButton, opacity: ready ? 1 : 0.4, cursor: ready ? "pointer" : "not-allowed" }}
                 onClick={handleDownload}
@@ -167,7 +178,11 @@ export default function App() {
               >
                 <DownloadIcon size={15} />
               </button>
-              <button style={styles.exitButton} onClick={exitToZephyr}>
+              <button
+                style={styles.exitButton}
+                onClick={exitToZephyr}
+                title="Exit — leave Zephyr Code entirely and return to Zephyr"
+              >
                 ← Exit to Zephyr
               </button>
             </>
@@ -205,6 +220,8 @@ export default function App() {
             previewNonce={previewNonce}
             files={files}
             onSaveFile={handleSaveFile}
+            logs={logs}
+            onClearLogs={handleClearLogs}
           />
         )}
       </main>
@@ -254,6 +271,7 @@ const styles: Record<string, React.CSSProperties> = {
     color: "#ffb677",
     border: "1px solid rgba(255,78,0,0.3)",
     borderRadius: "10px",
+    cursor: "pointer",
   },
   exitButton: {
     background: "rgba(255,255,255,0.05)",
