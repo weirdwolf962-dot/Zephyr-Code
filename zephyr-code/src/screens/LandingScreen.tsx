@@ -1,14 +1,16 @@
 import { useState } from "react";
 import type { Project } from "../utils/projects";
 import { formatRelativeTime } from "../utils/projects";
+import { TrashIcon } from "../components/icons";
 
 interface LandingScreenProps {
   projects: Project[];
   onSubmit: (prompt: string) => void;
+  onOpenProject: (project: Project) => void;
   onDeleteProject: (id: string) => void;
 }
 
-export default function LandingScreen({ projects, onSubmit, onDeleteProject }: LandingScreenProps) {
+export default function LandingScreen({ projects, onSubmit, onOpenProject, onDeleteProject }: LandingScreenProps) {
   const [value, setValue] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
@@ -63,16 +65,23 @@ export default function LandingScreen({ projects, onSubmit, onDeleteProject }: L
         ) : (
           <div style={styles.projectsList}>
             {projects.map((p) => (
-              <div key={p.id} style={styles.projectRow}>
+              <div
+                key={p.id}
+                style={{ ...styles.projectRow, cursor: submitting ? "not-allowed" : "pointer" }}
+                onClick={() => !submitting && onOpenProject(p)}
+              >
                 <span style={styles.projectDot} />
                 <span style={styles.projectName}>{p.name}</span>
                 <span style={styles.projectTime}>{formatRelativeTime(p.createdAt)}</span>
                 <button
                   style={styles.deleteButton}
-                  onClick={() => onDeleteProject(p.id)}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onDeleteProject(p.id);
+                  }}
                   title="Delete project"
                 >
-                  ✕
+                  <TrashIcon size={13} />
                 </button>
               </div>
             ))}
@@ -224,12 +233,14 @@ const styles: Record<string, React.CSSProperties> = {
   },
   deleteButton: {
     flexShrink: 0,
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
     background: "transparent",
     border: "none",
-    color: "rgba(255,255,255,0.25)",
-    fontSize: "12px",
+    color: "rgba(255,255,255,0.3)",
     cursor: "pointer",
-    padding: "4px 6px",
+    padding: "5px",
     borderRadius: "6px",
   },
 };
