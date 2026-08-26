@@ -1,10 +1,11 @@
 import { useState } from "react";
-import { bootHelloWorld, getContainer, type BootStage } from "./webcontainerBoot";
+import { bootHelloWorld, getContainer, writeFile, type BootStage } from "./webcontainerBoot";
 import { readAllFiles, downloadAsZip, type FlatFile } from "./fileTree";
 import { loadProjects, saveProject, deleteProject, type Project } from "./utils/projects";
 import LandingScreen from "./screens/LandingScreen";
 import Workspace, { type ChatMessage } from "./screens/Workspace";
 import LogConsole from "./components/LogConsole";
+import { DownloadIcon } from "./components/icons";
 
 /**
  * Zephyr Code — standalone shell.
@@ -45,14 +46,24 @@ export default function App() {
   const [logs, setLogs] = useState<string[]>([]);
   const [stage, setStage] = useState<BootStage>("idle");
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  // Bumped every time "server-ready" fires — including restarts triggered by
+  // a save. previewUrl often stays the same string across a restart, so the
+  // iframe needs something that always changes to force a real remount/reload.
+  const [previewNonce, setPreviewNonce] = useState(0);
   const [files, setFiles] = useState<FlatFile[]>([]);
   const [isZipping, setIsZipping] = useState(false);
 
   const ready = stage === "ready";
   const busy = stage !== "idle" && stage !== "ready" && stage !== "error";
 
-  async function runBoot(prompt: string) {
-    setMessages([
+  // Shared by "submit from landing", "reopen an old project", and "send a
+  // chat message" — all three just (re)boot the same test environment for
+  // now, since real per-project AI generation isn't wired up yet.
+  async function startBuild(prompt: string) {
+    let isFirstReady = true;
+
+    setMessages((prev) => [
+      ...prev,
       { role: "user", text: prompt },
       {
         role: "assistant",
@@ -67,16 +78,26 @@ export default function App() {
       onStageChange: setStage,
       onPreviewReady: async (url) => {
         setPreviewUrl(url);
-        setMessages((prev) => [
-          ...prev,
-          { role: "assistant", text: "Environment's up — preview is live on the right." },
-        ]);
+        setPreviewNonce((n) => n + 1);
+
         const container = getContainer();
         if (container) {
           const flat = await readAllFiles(container);
           setFiles(flat);
         }
-        setTimeout(() => setScreen("workspace"), 900);
+
+        if (isFirstReady) {
+          isFirstReady = false;
+          setMessages((prev) => [
+            ...prev,
+            { role: "assistant", text: "Environment's up — preview is live on the right." },
+          ]);
+          setTimeout(() => setScreen("workspace"), 900);
+        } else {
+          // A save triggered node --watch to restart the server, which
+          // re-fired server-ready — this is the hot-reload loop working.
+          setMessages((prev) => [...prev, { role: "log", text: "Preview reloaded after save." }]);
+        }
       },
     });
   }
@@ -85,7 +106,12 @@ export default function App() {
     if (screen === "building") return; // already mid-boot — ignore a stray second submit
     const project = saveProject(prompt);
     setProjects((prev) => [project, ...prev]);
-    runBoot(prompt);
+    startBuild(prompt);
+  }
+
+  function handleOpenProject(project: Project) {
+    if (screen === "building") return;
+    startBuild(project.name);
   }
 
   function handleDeleteProject(id: string) {
@@ -94,33 +120,20 @@ export default function App() {
   }
 
   function handleChatSend(text: string) {
-    setMessages((prev) => [...prev, { role: "user", text }]);
     if (busy) {
       setMessages((prev) => [
         ...prev,
+        { role: "user", text },
         { role: "assistant", text: "Still working on the current build — one sec." },
       ]);
       return;
     }
-    setMessages((prev) => [
-      ...prev,
-      { role: "assistant", text: "Spinning up the environment for that…" },
-    ]);
-    setLogs([]);
-    setScreen("building");
-    bootHelloWorld({
-      onLog: (line) => setLogs((prev) => [...prev, line]),
-      onStageChange: setStage,
-      onPreviewReady: async (url) => {
-        setPreviewUrl(url);
-        const container = getContainer();
-        if (container) {
-          const flat = await readAllFiles(container);
-          setFiles(flat);
-        }
-        setTimeout(() => setScreen("workspace"), 900);
-      },
-    });
+    startBuild(text);
+  }
+
+  async function handleSaveFile(path: string, contents: string) {
+    await writeFile(path, contents);
+    setFiles((prev) => prev.map((f) => (f.path === path ? { ...f, contents } : f)));
   }
 
   async function handleDownload() {
@@ -152,7 +165,7 @@ export default function App() {
                 disabled={!ready || isZipping}
                 title={ready ? "Download project as .zip" : "Available once a preview is ready"}
               >
-                {isZipping ? "…" : "⬇"}
+                <DownloadIcon size={15} />
               </button>
               <button style={styles.exitButton} onClick={exitToZephyr}>
                 ← Exit to Zephyr
@@ -165,7 +178,12 @@ export default function App() {
       {/* Body */}
       <main style={styles.main}>
         {screen === "landing" && (
-          <LandingScreen projects={projects} onSubmit={handleLandingSubmit} onDeleteProject={handleDeleteProject} />
+          <LandingScreen
+            projects={projects}
+            onSubmit={handleLandingSubmit}
+            onOpenProject={handleOpenProject}
+            onDeleteProject={handleDeleteProject}
+          />
         )}
 
         {screen === "building" && (
@@ -184,7 +202,9 @@ export default function App() {
             onSend={handleChatSend}
             busy={busy}
             previewUrl={previewUrl}
+            previewNonce={previewNonce}
             files={files}
+            onSaveFile={handleSaveFile}
           />
         )}
       </main>
@@ -234,7 +254,6 @@ const styles: Record<string, React.CSSProperties> = {
     color: "#ffb677",
     border: "1px solid rgba(255,78,0,0.3)",
     borderRadius: "10px",
-    fontSize: "14px",
   },
   exitButton: {
     background: "rgba(255,255,255,0.05)",
