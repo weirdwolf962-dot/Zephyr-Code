@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from "react";
-import Editor from "@monaco-editor/react";
+import Editor, { type OnMount } from "@monaco-editor/react";
 import type { FlatFile } from "../fileTree";
 import { languageFromPath } from "../utils/language";
+import { SaveIcon } from "../components/icons";
 
 export type ChatRole = "user" | "assistant" | "log";
 export interface ChatMessage {
@@ -14,14 +15,34 @@ interface WorkspaceProps {
   onSend: (text: string) => void;
   busy: boolean;
   previewUrl: string | null;
+  previewNonce: number;
   files: FlatFile[];
+  onSaveFile: (path: string, contents: string) => Promise<void>;
 }
 
-export default function Workspace({ messages, onSend, busy, previewUrl, files }: WorkspaceProps) {
+type SaveState = "idle" | "dirty" | "saving" | "saved";
+
+export default function Workspace({
+  messages,
+  onSend,
+  busy,
+  previewUrl,
+  previewNonce,
+  files,
+  onSaveFile,
+}: WorkspaceProps) {
   const [input, setInput] = useState("");
   const [viewMode, setViewMode] = useState<"preview" | "code">("preview");
   const [activeFilePath, setActiveFilePath] = useState<string | null>(null);
+  // Local edit buffer, keyed by path — separate from `files` (the
+  // last-saved/last-read-from-container state) so we know what's dirty.
+  const [buffers, setBuffers] = useState<Record<string, string>>({});
+  const [saveState, setSaveState] = useState<SaveState>("idle");
   const chatEndRef = useRef<HTMLDivElement>(null);
+  // Monaco's Ctrl+S command is bound once on mount, so it needs a ref to
+  // always see the CURRENT active file/buffer, not whatever they were
+  // when the editor first mounted.
+  const saveRef = useRef<() => void>(() => {});
 
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -31,6 +52,13 @@ export default function Workspace({ messages, onSend, busy, previewUrl, files }:
     if (!activeFilePath && files.length > 0) setActiveFilePath(files[0].path);
   }, [files, activeFilePath]);
 
+  // When the container's file list updates (e.g. a fresh boot), drop any
+  // stale local buffer for paths that no longer exist, and seed buffers
+  // for files we haven't opened yet lazily (handled in getBufferFor).
+  const activeFile = files.find((f) => f.path === activeFilePath) ?? null;
+  const bufferValue = activeFilePath ? buffers[activeFilePath] ?? activeFile?.contents ?? "" : "";
+  const isDirty = activeFile ? bufferValue !== activeFile.contents : false;
+
   function handleSend() {
     const text = input.trim();
     if (!text) return;
@@ -38,7 +66,33 @@ export default function Workspace({ messages, onSend, busy, previewUrl, files }:
     onSend(text);
   }
 
-  const activeFile = files.find((f) => f.path === activeFilePath) ?? null;
+  function handleEditorChange(value: string | undefined) {
+    if (!activeFilePath) return;
+    setBuffers((prev) => ({ ...prev, [activeFilePath]: value ?? "" }));
+    setSaveState("dirty");
+  }
+
+  async function handleSaveActive() {
+    if (!activeFilePath) return;
+    const content = buffers[activeFilePath];
+    if (content === undefined) return; // nothing edited
+    setSaveState("saving");
+    try {
+      await onSaveFile(activeFilePath, content);
+      setSaveState("saved");
+      setTimeout(() => setSaveState((s) => (s === "saved" ? "idle" : s)), 2000);
+    } catch {
+      setSaveState("dirty");
+    }
+  }
+
+  saveRef.current = handleSaveActive;
+
+  const handleEditorMount: OnMount = (editor, monaco) => {
+    editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => {
+      saveRef.current();
+    });
+  };
 
   return (
     <div style={styles.workspace}>
@@ -86,7 +140,7 @@ export default function Workspace({ messages, onSend, busy, previewUrl, files }:
         <div style={styles.contentArea}>
           {viewMode === "preview" ? (
             previewUrl ? (
-              <iframe key={previewUrl} src={previewUrl} title="Preview" style={styles.iframe} />
+              <iframe key={`${previewUrl}-${previewNonce}`} src={previewUrl} title="Preview" style={styles.iframe} />
             ) : (
               <div style={styles.previewPlaceholder}>
                 <p style={styles.placeholderText}>Waiting for a build…</p>
@@ -96,41 +150,59 @@ export default function Workspace({ messages, onSend, busy, previewUrl, files }:
             <div style={styles.codeView}>
               <div style={styles.fileExplorer}>
                 <p style={styles.fileExplorerLabel}>File explorer</p>
-                {files.map((f) => (
-                  <button
-                    key={f.path}
-                    onClick={() => setActiveFilePath(f.path)}
-                    style={{
-                      ...styles.fileItem,
-                      background: f.path === activeFilePath ? "rgba(255,78,0,0.14)" : "transparent",
-                      color: f.path === activeFilePath ? "#ffb677" : "rgba(255,255,255,0.6)",
-                    }}
-                  >
-                    {f.path}
-                  </button>
-                ))}
+                {files.map((f) => {
+                  const dirty = buffers[f.path] !== undefined && buffers[f.path] !== f.contents;
+                  return (
+                    <button
+                      key={f.path}
+                      onClick={() => setActiveFilePath(f.path)}
+                      style={{
+                        ...styles.fileItem,
+                        background: f.path === activeFilePath ? "rgba(255,78,0,0.14)" : "transparent",
+                        color: f.path === activeFilePath ? "#ffb677" : "rgba(255,255,255,0.6)",
+                      }}
+                    >
+                      {f.path}
+                      {dirty && <span style={styles.dirtyDot}>●</span>}
+                    </button>
+                  );
+                })}
               </div>
 
               <div style={styles.editorArea}>
                 {activeFile && (
-                  <div style={styles.editorTab}>{activeFile.path}</div>
+                  <div style={styles.editorTab}>
+                    <span>{activeFile.path}</span>
+                    <button
+                      style={{
+                        ...styles.saveButton,
+                        opacity: isDirty || saveState === "saving" ? 1 : 0.35,
+                        cursor: isDirty && saveState !== "saving" ? "pointer" : "default",
+                      }}
+                      onClick={handleSaveActive}
+                      disabled={!isDirty || saveState === "saving"}
+                      title="Save (Ctrl/Cmd+S) — writes to the WebContainer and reloads the preview"
+                    >
+                      <SaveIcon size={12} />
+                      {saveState === "saving" ? "Saving…" : saveState === "saved" ? "Saved" : "Save"}
+                    </button>
+                  </div>
                 )}
                 <div style={{ flex: 1, minHeight: 0 }}>
                   {activeFile ? (
                     <Editor
                       key={activeFile.path}
                       language={languageFromPath(activeFile.path)}
-                      value={activeFile.contents}
+                      value={bufferValue}
                       theme="vs-dark"
+                      onChange={handleEditorChange}
+                      onMount={handleEditorMount}
                       options={{
                         fontSize: 12.5,
                         fontFamily: "JetBrains Mono, monospace",
                         minimap: { enabled: false },
                         scrollBeyondLastLine: false,
                         automaticLayout: true,
-                        // Editable, but edits aren't wired to rebuild yet —
-                        // that's the next step once file-writes are connected.
-                        readOnly: false,
                       }}
                     />
                   ) : (
@@ -290,7 +362,12 @@ const styles: Record<string, React.CSSProperties> = {
     fontSize: "12px",
     fontFamily: "var(--font-mono)",
     cursor: "pointer",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: "6px",
   },
+  dirtyDot: { color: "#ff4e00", fontSize: "8px" },
   editorArea: { flex: 1, display: "flex", flexDirection: "column", minHeight: 0 },
   editorTab: {
     padding: "8px 14px",
@@ -299,5 +376,20 @@ const styles: Record<string, React.CSSProperties> = {
     color: "rgba(255,255,255,0.5)",
     borderBottom: "1px solid rgba(255,255,255,0.06)",
     flexShrink: 0,
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  saveButton: {
+    display: "flex",
+    alignItems: "center",
+    gap: "6px",
+    background: "rgba(255,78,0,0.12)",
+    color: "#ffb677",
+    border: "1px solid rgba(255,78,0,0.3)",
+    borderRadius: "7px",
+    padding: "4px 10px",
+    fontSize: "11px",
+    fontWeight: 600,
   },
 };
