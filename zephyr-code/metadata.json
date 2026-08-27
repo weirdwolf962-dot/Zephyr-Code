@@ -1,0 +1,6 @@
+{
+  "name": "Zephyr Code",
+  "description": "In-browser code editor and workspace environment powered by WebContainers",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
