@@ -1,0 +1,193 @@
+@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=Inter:wght@300;400;500;600;700&family=Cormorant+Garamond:ital,wght@0,300;0,400;0,600;1,300;1,400;1,600&family=JetBrains+Mono:wght@400;500;600;700&display=swap');
+
+:root {
+  --color-bg: #070302;
+  --color-bg-subtle: #0d0603;
+  --color-panel: #0e0a08;
+  --color-panel-elevated: #16100c;
+  --color-panel-border: rgba(255, 120, 40, 0.12);
+  --color-panel-border-hover: rgba(255, 120, 40, 0.28);
+  
+  --color-accent: #ff4e00;
+  --color-accent-hover: #ff651a;
+  --color-accent-light: #ffb677;
+  --color-accent-glow: rgba(255, 78, 0, 0.25);
+  --color-accent-subtle: rgba(255, 78, 0, 0.08);
+
+  --color-text-primary: #ffffff;
+  --color-text-secondary: rgba(255, 255, 255, 0.72);
+  --color-text-muted: rgba(255, 255, 255, 0.42);
+  --color-text-dim: rgba(255, 255, 255, 0.25);
+
+  --glass-surface: rgba(22, 16, 12, 0.75);
+  --glass-border: rgba(255, 255, 255, 0.08);
+
+  --font-sans: "Plus Jakarta Sans", "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --font-serif: "Cormorant Garamond", Georgia, serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html, body, #root {
+  height: 100%;
+  width: 100%;
+  overflow: hidden;
+  background-color: var(--color-bg);
+  color: var(--color-text-primary);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Background Atmosphere */
+.ambient-glow {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  background: 
+    radial-gradient(circle at 50% 0%, rgba(255, 78, 0, 0.12) 0%, transparent 60%),
+    radial-gradient(circle at 10% 90%, rgba(255, 120, 50, 0.06) 0%, transparent 50%),
+    radial-gradient(circle at 90% 80%, rgba(255, 60, 0, 0.05) 0%, transparent 45%);
+}
+
+.ambient-grid {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  background-size: 40px 40px;
+  background-image: 
+    linear-gradient(to right, rgba(255, 255, 255, 0.02) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(255, 255, 255, 0.02) 1px, transparent 1px);
+  mask-image: radial-gradient(circle at 50% 50%, black 40%, transparent 80%);
+}
+
+/* Custom Scrollbars */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(255, 120, 50, 0.18);
+  border-radius: 9999px;
+  border: 1px solid rgba(0, 0, 0, 0.3);
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 120, 50, 0.38);
+}
+
+/* Glass & Card styles */
+.zephyr-glass {
+  background: var(--glass-surface);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid var(--color-panel-border);
+}
+
+.zephyr-card {
+  background: var(--color-panel);
+  border: 1px solid var(--color-panel-border);
+  border-radius: 12px;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.zephyr-card:hover {
+  border-color: var(--color-panel-border-hover);
+  box-shadow: 0 8px 24px rgba(255, 78, 0, 0.08);
+}
+
+/* Buttons */
+.zephyr-btn-primary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  background: linear-gradient(135deg, #ff5e14 0%, #e03e00 100%);
+  color: #ffffff;
+  font-weight: 600;
+  font-size: 13px;
+  border: 1px solid rgba(255, 182, 119, 0.3);
+  border-radius: 10px;
+  padding: 8px 16px;
+  cursor: pointer;
+  box-shadow: 0 4px 14px rgba(255, 78, 0, 0.3);
+  transition: all 0.18s ease;
+  white-space: nowrap;
+}
+
+.zephyr-btn-primary:hover:not(:disabled) {
+  background: linear-gradient(135deg, #ff702e 0%, #f04800 100%);
+  box-shadow: 0 6px 20px rgba(255, 78, 0, 0.45);
+  transform: translateY(-1px);
+}
+
+.zephyr-btn-primary:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  transform: none;
+  box-shadow: none;
+}
+
+.zephyr-btn-ghost {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--color-text-secondary);
+  font-weight: 500;
+  font-size: 12.5px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 9px;
+  padding: 6px 12px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  white-space: nowrap;
+}
+
+.zephyr-btn-ghost:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.09);
+  color: #fff;
+  border-color: rgba(255, 255, 255, 0.16);
+}
+
+.zephyr-btn-ghost:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+/* Animations */
+@keyframes pulseGlow {
+  0%, 100% { opacity: 0.6; transform: scale(1); }
+  50% { opacity: 1; transform: scale(1.05); }
+}
+
+.animate-pulse-glow {
+  animation: pulseGlow 3s ease-in-out infinite;
+}
+
+@keyframes spinSlow {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+.animate-spin-slow {
+  animation: spinSlow 8s linear infinite;
+}
+
+/* Monaco container helper */
+.monaco-editor, .monaco-editor .overflow-guard {
+  border-radius: 0 0 8px 8px;
+}
