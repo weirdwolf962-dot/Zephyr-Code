@@ -15,7 +15,7 @@ import type { AttachedFile } from "./utils/fileAttachment";
 import LandingScreen from "./screens/LandingScreen";
 import Workspace, { type ChatMessage } from "./screens/Workspace";
 import LogConsole from "./components/LogConsole";
-import { DownloadIcon, HomeIcon, ZapIcon, SparklesIcon, BrandLogo } from "./components/icons";
+import { DownloadIcon, HomeIcon, ZapIcon, SparklesIcon } from "./components/icons";
 
 type Screen = "landing" | "building" | "workspace";
 
@@ -35,28 +35,61 @@ export default function App() {
   const busy = stage !== "idle" && stage !== "ready" && stage !== "error";
   const isVirtual = getIsVirtual();
 
-  async function startBuild(prompt: string, initialFiles?: AttachedFile[]) {
+  async function startBuild(prompt: string, attachedFiles?: AttachedFile[]) {
     let isFirstReady = true;
     setActiveProjectName(prompt.length > 32 ? prompt.slice(0, 32) + "…" : prompt);
 
-    const initialFilesSummary =
-      initialFiles && initialFiles.length > 0
-        ? ` with ${initialFiles.length} attached file(s) (${initialFiles.map((f) => f.name).join(", ")})`
+    const attachedSummary =
+      attachedFiles && attachedFiles.length > 0
+        ? ` with ${attachedFiles.length} attached file(s) (${attachedFiles.map((f) => f.name).join(", ")})`
         : "";
 
     setMessages([
-      { role: "user", text: prompt + (initialFilesSummary ? `\n[Attached: ${initialFiles?.map((f) => f.name).join(", ")}]` : "") },
+      {
+        role: "user",
+        text: prompt + (attachedSummary ? `\n[Attached: ${attachedFiles?.map((f) => f.name).join(", ")}]` : ""),
+      },
       {
         role: "assistant",
-        text: `Synthesizing architecture for "${prompt}"${initialFilesSummary}. Initializing full-stack Node.js environment, Monaco editor, and live hot-reload preview.`,
+        text: `Generating "${prompt}"${attachedSummary} with Gemini…`,
       },
     ]);
     setLogs([]);
     setScreen("building");
 
+    // Ask Gemini for the REAL project first. bootProject's `initialFiles`
+    // hook lets these override the fake generateStarterFiles() templates
+    // before anything even mounts — so the very first boot is real too,
+    // not just follow-up chat edits.
+    let aiFiles: { name: string; contents: string }[] = [];
+    try {
+      setLogs((prev) => [...prev, "Asking Gemini to generate the project…"]);
+      const generated = await generateProject(prompt);
+      aiFiles = generated.map((f) => ({ name: f.filePath, contents: f.fullContent }));
+      setLogs((prev) => [...prev, `✅ Gemini returned ${generated.length} file(s).`]);
+    } catch (error: any) {
+      const message = error?.message || String(error);
+      setLogs((prev) => [...prev, `❌ Generation failed: ${message}`]);
+      setMessages((prev) => [
+        ...prev,
+        {
+          role: "assistant",
+          text: `Real generation failed (${message}) — showing a fallback demo instead so you're not stuck.`,
+        },
+      ]);
+      // aiFiles stays empty — bootProject falls back to generateStarterFiles().
+    }
+
+    // User-attached files are applied AFTER the AI's files, so an explicit
+    // attachment always wins over anything Gemini produced with the same name.
+    const mergedInitialFiles = [
+      ...aiFiles,
+      ...(attachedFiles?.map((f) => ({ name: f.name, contents: f.contents })) ?? []),
+    ];
+
     await bootProject({
       prompt,
-      initialFiles: initialFiles?.map((f) => ({ name: f.name, contents: f.contents })),
+      initialFiles: mergedInitialFiles.length > 0 ? mergedInitialFiles : undefined,
       onLog: (line) => setLogs((prev) => [...prev, line]),
       onStageChange: setStage,
       onPreviewReady: async (url) => {
@@ -73,7 +106,7 @@ export default function App() {
             ...prev,
             {
               role: "assistant",
-              text: "✨ Live sandbox is active! You can edit code in Monaco, test REST endpoints, or ask for refinements right here.",
+              text: "✨ Live sandbox is active! You can edit code in Monaco, test endpoints, or ask for refinements right here.",
             },
           ]);
           setTimeout(() => setScreen("workspace"), 600);
@@ -142,7 +175,7 @@ export default function App() {
 
     try {
       const generatedFiles = await generateProject(text);
-      await runGeneratedProject(generatedFiles);
+      await runGeneratedProject(generatedFiles, (line) => setLogs((prev) => [...prev, line]));
 
       const container = getContainer();
       const flat = await readAllFiles(container);
@@ -195,7 +228,7 @@ export default function App() {
             onClick={() => setScreen("landing")}
             title="Return to Zephyr Code Home"
           >
-            <BrandLogo size={22} />
+            <span style={styles.brandMark}>⟨/⟩</span>
             <span style={styles.brandName}>Zephyr Code</span>
           </button>
 
