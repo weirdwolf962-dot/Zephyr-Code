@@ -69,6 +69,7 @@ export default function App() {
         : "";
 
     let aiFiles: { name: string; contents: string }[] = [];
+    let featureList: string[] = [];
     const genStartedAt = Date.now();
 
     if (reopening) {
@@ -100,8 +101,9 @@ export default function App() {
       try {
         setLogs((prev) => [...prev, "Asking Gemini to generate the project…"]);
         const generated = await generateProject(prompt);
-        aiFiles = generated.map((f) => ({ name: f.filePath, contents: f.fullContent }));
-        setLogs((prev) => [...prev, `✅ Gemini returned ${generated.length} file(s).`]);
+        aiFiles = generated.files.map((f) => ({ name: f.filePath, contents: f.fullContent }));
+        featureList = generated.featureList;
+        setLogs((prev) => [...prev, `✅ Gemini returned ${generated.files.length} file(s).`]);
       } catch (error: any) {
         const message = error?.message || String(error);
         setLogs((prev) => [...prev, `❌ Generation failed: ${message}`]);
@@ -150,11 +152,15 @@ export default function App() {
             ]);
           } else {
             const elapsed = Math.max(1, Math.round((Date.now() - genStartedAt) / 1000));
+            const readyText =
+              featureList.length > 0
+                ? `Built with: ${featureList.join(", ")}. Tell me what to add or change next.`
+                : "Your project is ready — tell me what to add or change next.";
             setMessages((prev) => [
               ...prev,
               {
                 role: "assistant",
-                text: "Your project is ready — tell me what to add or change next.",
+                text: readyText,
                 actionLabel: "Action history",
                 meta: `Gemini • Ran for ${elapsed}s`,
                 fileChanges: flat.map((f) => ({ path: f.path, status: "created" as const })),
@@ -231,26 +237,41 @@ export default function App() {
       const previousPaths = new Set(files.map((f) => f.path));
       const startedAt = Date.now();
 
-      const generatedFiles = await generateProject(text);
-      await runGeneratedProject(generatedFiles, (line) => setLogs((prev) => [...prev, line]));
+      // Send the AI the CURRENT project files, not just the raw instruction.
+      // Without this, every message — even "rename it X" or a plain
+      // question — looked like a request to build a brand new app from
+      // scratch, because the model had no idea a project already existed.
+      const result = await generateProject(
+        text,
+        files.map((f) => ({ path: f.path, contents: f.contents }))
+      );
+      const elapsed = Math.max(1, Math.round((Date.now() - startedAt) / 1000));
+
+      if (result.files.length === 0) {
+        // No code needed to change — this was a question, or something
+        // about deployment/config outside the app itself. Just answer in
+        // chat instead of forcing an unrelated app into existence.
+        setMessages((prev) => [...prev, { role: "assistant", text: result.reply || "Got it." }]);
+        return;
+      }
+
+      await runGeneratedProject(result.files, (line) => setLogs((prev) => [...prev, line]));
 
       const container = getContainer();
       const flat = await readAllFiles(container);
       setFiles(flat);
       if (activeProjectId) updateProjectFiles(activeProjectId, flat);
 
-      const fileChanges = generatedFiles.map((f) => ({
+      const fileChanges = result.files.map((f) => ({
         path: f.filePath,
         status: previousPaths.has(f.filePath) ? ("modified" as const) : ("created" as const),
       }));
-      const elapsed = Math.max(1, Math.round((Date.now() - startedAt) / 1000));
 
-      // Only add a written explanation when the change touches more than
-      // one file — a single-file tweak speaks for itself via the card.
+      // Prefer the model's own account of what it did; only fall back to
+      // an auto-generated file list if it didn't give one.
       const explanation =
-        fileChanges.length > 1
-          ? `Updated ${formatFileList(fileChanges.map((f) => f.path))} to handle that.`
-          : "";
+        result.reply ||
+        (fileChanges.length > 1 ? `Updated ${formatFileList(fileChanges.map((f) => f.path))} to handle that.` : "");
 
       setMessages((prev) => [
         ...prev,
