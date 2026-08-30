@@ -10,17 +10,40 @@ import {
 } from "./webcontainerBoot";
 import { generateProject } from "./services/generate";
 import { readAllFiles, downloadAsZip, type FlatFile } from "./fileTree";
-import { loadProjects, saveProject, deleteProject, type Project } from "./utils/projects";
+import { loadProjects, saveProject, updateProjectFiles, deleteProject, type Project, type ProjectFile } from "./utils/projects";
 import type { AttachedFile } from "./utils/fileAttachment";
 import LandingScreen from "./screens/LandingScreen";
 import Workspace, { type ChatMessage } from "./screens/Workspace";
 import LogConsole from "./components/LogConsole";
-import { DownloadIcon, HomeIcon, ZapIcon, SparklesIcon } from "./components/icons";
+import { DownloadIcon, HomeIcon, SparklesIcon } from "./components/icons";
 
 type Screen = "landing" | "building" | "workspace";
 
+// Turns a list of file paths into a short, readable phrase for chat
+// messages, e.g. "`server.js`, `package.json`, and 3 more".
+function formatFileList(paths: string[]): string {
+  const unique = Array.from(new Set(paths));
+  if (unique.length === 0) return "no files";
+  const shown = unique.slice(0, 4).map((p) => `\`${p}\``);
+  const extra = unique.length - shown.length;
+  return shown.join(", ") + (extra > 0 ? `, and ${extra} more` : "");
+}
+
+// Compares the file paths the project had before a chat edit against the
+// files the AI actually returned, so the assistant can describe what it
+// did in plain language instead of a generic "Done" message.
+function summarizeChange(previousPaths: Set<string>, changed: { filePath: string }[]): string {
+  const added = changed.filter((f) => !previousPaths.has(f.filePath)).map((f) => f.filePath);
+  const modified = changed.filter((f) => previousPaths.has(f.filePath)).map((f) => f.filePath);
+  const parts: string[] = [];
+  if (added.length) parts.push(`created ${formatFileList(added)}`);
+  if (modified.length) parts.push(`updated ${formatFileList(modified)}`);
+  return parts.length > 0 ? parts.join(" and ") : "made a small adjustment";
+}
+
 export default function App() {
   const [screen, setScreen] = useState<Screen>("landing");
+  const [activeProjectId, setActiveProjectId] = useState<string | null>(null);
   const [activeProjectName, setActiveProjectName] = useState<string>("Untitled Workspace");
   const [projects, setProjects] = useState<Project[]>(() => loadProjects());
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -35,49 +58,75 @@ export default function App() {
   const busy = stage !== "idle" && stage !== "ready" && stage !== "error";
   const isVirtual = getIsVirtual();
 
-  async function startBuild(prompt: string, attachedFiles?: AttachedFile[]) {
+  async function startBuild(
+    prompt: string,
+    attachedFiles?: AttachedFile[],
+    opts?: { projectId?: string; cachedFiles?: ProjectFile[] }
+  ) {
     let isFirstReady = true;
     setActiveProjectName(prompt.length > 32 ? prompt.slice(0, 32) + "…" : prompt);
+
+    // If we already have a saved snapshot of this project's files, restore
+    // them directly instead of calling Gemini again — the AI only needs to
+    // run once, on first creation. Every later open (or reopen) is instant.
+    const reopening = !!opts?.cachedFiles && opts.cachedFiles.length > 0;
 
     const attachedSummary =
       attachedFiles && attachedFiles.length > 0
         ? ` with ${attachedFiles.length} attached file(s) (${attachedFiles.map((f) => f.name).join(", ")})`
         : "";
 
-    setMessages([
-      {
-        role: "user",
-        text: prompt + (attachedSummary ? `\n[Attached: ${attachedFiles?.map((f) => f.name).join(", ")}]` : ""),
-      },
-      {
-        role: "assistant",
-        text: `Generating "${prompt}"${attachedSummary} with Gemini…`,
-      },
-    ]);
-    setLogs([]);
-    setScreen("building");
-
-    // Ask Gemini for the REAL project first. bootProject's `initialFiles`
-    // hook lets these override the fake generateStarterFiles() templates
-    // before anything even mounts — so the very first boot is real too,
-    // not just follow-up chat edits.
     let aiFiles: { name: string; contents: string }[] = [];
-    try {
-      setLogs((prev) => [...prev, "Asking Gemini to generate the project…"]);
-      const generated = await generateProject(prompt);
-      aiFiles = generated.map((f) => ({ name: f.filePath, contents: f.fullContent }));
-      setLogs((prev) => [...prev, `✅ Gemini returned ${generated.length} file(s).`]);
-    } catch (error: any) {
-      const message = error?.message || String(error);
-      setLogs((prev) => [...prev, `❌ Generation failed: ${message}`]);
-      setMessages((prev) => [
-        ...prev,
+
+    if (reopening) {
+      aiFiles = opts!.cachedFiles!.map((f) => ({ name: f.path, contents: f.contents }));
+      setMessages([
         {
           role: "assistant",
-          text: `Real generation failed (${message}) — showing a fallback demo instead so you're not stuck.`,
+          text: `Welcome back — restoring "${prompt}" from your last session (${formatFileList(
+            aiFiles.map((f) => f.name)
+          )}). No need to regenerate anything.`,
         },
       ]);
-      // aiFiles stays empty — bootProject falls back to generateStarterFiles().
+      setLogs(["Restoring saved project files…"]);
+    } else {
+      setMessages([
+        {
+          role: "user",
+          text: prompt + (attachedSummary ? `\n[Attached: ${attachedFiles?.map((f) => f.name).join(", ")}]` : ""),
+        },
+        {
+          role: "assistant",
+          text: `On it — scaffolding "${prompt}"${attachedSummary}…`,
+        },
+      ]);
+      setLogs([]);
+    }
+
+    setScreen("building");
+
+    if (!reopening) {
+      // Ask Gemini for the REAL project first. bootProject's `initialFiles`
+      // hook lets these override the fake generateStarterFiles() templates
+      // before anything even mounts — so the very first boot is real too,
+      // not just follow-up chat edits.
+      try {
+        setLogs((prev) => [...prev, "Asking Gemini to generate the project…"]);
+        const generated = await generateProject(prompt);
+        aiFiles = generated.map((f) => ({ name: f.filePath, contents: f.fullContent }));
+        setLogs((prev) => [...prev, `✅ Gemini returned ${generated.length} file(s).`]);
+      } catch (error: any) {
+        const message = error?.message || String(error);
+        setLogs((prev) => [...prev, `❌ Generation failed: ${message}`]);
+        setMessages((prev) => [
+          ...prev,
+          {
+            role: "assistant",
+            text: `Hit an error generating custom code (${message}) — using a working starter template instead so you're not stuck.`,
+          },
+        ]);
+        // aiFiles stays empty — bootProject falls back to generateStarterFiles().
+      }
     }
 
     // User-attached files are applied AFTER the AI's files, so an explicit
@@ -102,14 +151,28 @@ export default function App() {
 
         if (isFirstReady) {
           isFirstReady = false;
-          setMessages((prev) => [
-            ...prev,
-            {
-              role: "assistant",
-              text: "✨ Live sandbox is active! You can edit code in Monaco, test endpoints, or ask for refinements right here.",
-            },
-          ]);
-          setTimeout(() => setScreen("workspace"), 600);
+
+          if (opts?.projectId) {
+            updateProjectFiles(opts.projectId, flat);
+          }
+
+          if (reopening) {
+            setMessages((prev) => [
+              ...prev,
+              { role: "assistant", text: "Preview is live. Ready to keep building?" },
+            ]);
+          } else {
+            setMessages((prev) => [
+              ...prev,
+              {
+                role: "assistant",
+                text: `Done — I set up ${formatFileList(
+                  flat.map((f) => f.path)
+                )} and the preview is live. Tell me what to add or change next.`,
+              },
+            ]);
+          }
+          setTimeout(() => setScreen("workspace"), reopening ? 150 : 500);
         } else {
           setMessages((prev) => [
             ...prev,
@@ -124,12 +187,17 @@ export default function App() {
     if (screen === "building") return;
     const project = saveProject(prompt);
     setProjects((prev) => [project, ...prev]);
-    startBuild(prompt, initialFiles);
+    setActiveProjectId(project.id);
+    startBuild(prompt, initialFiles, { projectId: project.id });
   }
 
   function handleOpenProject(project: Project) {
     if (screen === "building") return;
-    startBuild(project.name);
+    setActiveProjectId(project.id);
+    startBuild(project.name, undefined, {
+      projectId: project.id,
+      cachedFiles: project.files && project.files.length > 0 ? project.files : undefined,
+    });
   }
 
   function handleDeleteProject(id: string) {
@@ -142,7 +210,7 @@ export default function App() {
       setMessages((prev) => [
         ...prev,
         { role: "user", text },
-        { role: "assistant", text: "Working on the current operation — one moment." },
+        { role: "assistant", text: "Still finishing the last request — I'll pick this up right after." },
       ]);
       return;
     }
@@ -155,7 +223,7 @@ export default function App() {
     setMessages((prev) => [
       ...prev,
       { role: "user", text: userMsg },
-      { role: "assistant", text: "Generating your project…" },
+      { role: "assistant", text: "Working on it…" },
     ]);
 
     // If user attached files in chat, write them to the workspace directly
@@ -166,12 +234,17 @@ export default function App() {
       const container = getContainer();
       const flat = await readAllFiles(container);
       setFiles(flat);
+      if (activeProjectId) updateProjectFiles(activeProjectId, flat);
     }
 
     if (!text.trim()) {
-      setMessages((prev) => prev.filter((m) => m.text !== "Generating your project…"));
+      setMessages((prev) => prev.filter((m) => m.text !== "Working on it…"));
       return;
     }
+
+    // Snapshot of what existed before this edit, so we can tell the person
+    // which files were newly created vs. modified once the AI responds.
+    const previousPaths = new Set(files.map((f) => f.path));
 
     try {
       const generatedFiles = await generateProject(text);
@@ -180,22 +253,32 @@ export default function App() {
       const container = getContainer();
       const flat = await readAllFiles(container);
       setFiles(flat);
+      if (activeProjectId) updateProjectFiles(activeProjectId, flat);
+
+      const summary = summarizeChange(previousPaths, generatedFiles);
 
       setMessages((prev) => [
-        ...prev.filter((m) => m.text !== "Generating your project…"),
-        { role: "assistant", text: "Done — preview updated." },
+        ...prev.filter((m) => m.text !== "Working on it…"),
+        { role: "assistant", text: `Done — ${summary}. Preview refreshed, take a look.` },
       ]);
     } catch (error: any) {
       setMessages((prev) => [
-        ...prev.filter((m) => m.text !== "Generating your project…"),
-        { role: "assistant", text: `Something went wrong: ${error?.message || String(error)}` },
+        ...prev.filter((m) => m.text !== "Working on it…"),
+        {
+          role: "assistant",
+          text: `Ran into an issue: ${error?.message || String(error)}. Nothing was changed — try rephrasing and I'll give it another shot.`,
+        },
       ]);
     }
   }
 
   async function handleSaveFile(path: string, contents: string) {
     await writeFile(path, contents);
-    setFiles((prev) => prev.map((f) => (f.path === path ? { ...f, contents } : f)));
+    setFiles((prev) => {
+      const updated = prev.map((f) => (f.path === path ? { ...f, contents } : f));
+      if (activeProjectId) updateProjectFiles(activeProjectId, updated);
+      return updated;
+    });
   }
 
   async function handleRefreshFiles() {
@@ -226,10 +309,9 @@ export default function App() {
           <button
             style={styles.brand}
             onClick={() => setScreen("landing")}
-            title="Return to Zephyr Code Home"
+            title="Home"
           >
             <span style={styles.brandMark}>⟨/⟩</span>
-            <span style={styles.brandName}>Zephyr Code</span>
           </button>
 
           {screen === "workspace" && (
