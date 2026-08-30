@@ -30,16 +30,8 @@ function formatFileList(paths: string[]): string {
 }
 
 // Compares the file paths the project had before a chat edit against the
-// files the AI actually returned, so the assistant can describe what it
-// did in plain language instead of a generic "Done" message.
-function summarizeChange(previousPaths: Set<string>, changed: { filePath: string }[]): string {
-  const added = changed.filter((f) => !previousPaths.has(f.filePath)).map((f) => f.filePath);
-  const modified = changed.filter((f) => previousPaths.has(f.filePath)).map((f) => f.filePath);
-  const parts: string[] = [];
-  if (added.length) parts.push(`created ${formatFileList(added)}`);
-  if (modified.length) parts.push(`updated ${formatFileList(modified)}`);
-  return parts.length > 0 ? parts.join(" and ") : "made a small adjustment";
-}
+// files the AI actually returned, so file rows can be marked created vs.
+// modified in the Action History card.
 
 export default function App() {
   const [screen, setScreen] = useState<Screen>("landing");
@@ -53,10 +45,10 @@ export default function App() {
   const [previewNonce, setPreviewNonce] = useState(0);
   const [files, setFiles] = useState<FlatFile[]>([]);
   const [isZipping, setIsZipping] = useState(false);
+  const [isChatBusy, setIsChatBusy] = useState(false);
 
   const ready = stage === "ready";
-  const busy = stage !== "idle" && stage !== "ready" && stage !== "error";
-  const isVirtual = getIsVirtual();
+  const busy = stage !== "idle" && stage !== "ready" && stage !== "error";  const isVirtual = getIsVirtual();
 
   async function startBuild(
     prompt: string,
@@ -77,15 +69,14 @@ export default function App() {
         : "";
 
     let aiFiles: { name: string; contents: string }[] = [];
+    const genStartedAt = Date.now();
 
     if (reopening) {
       aiFiles = opts!.cachedFiles!.map((f) => ({ name: f.path, contents: f.contents }));
       setMessages([
         {
           role: "assistant",
-          text: `Welcome back — restoring "${prompt}" from your last session (${formatFileList(
-            aiFiles.map((f) => f.name)
-          )}). No need to regenerate anything.`,
+          text: `Welcome back — restoring "${prompt}" from your last session. No need to regenerate anything.`,
         },
       ]);
       setLogs(["Restoring saved project files…"]);
@@ -94,10 +85,6 @@ export default function App() {
         {
           role: "user",
           text: prompt + (attachedSummary ? `\n[Attached: ${attachedFiles?.map((f) => f.name).join(", ")}]` : ""),
-        },
-        {
-          role: "assistant",
-          text: `On it — scaffolding "${prompt}"${attachedSummary}…`,
         },
       ]);
       setLogs([]);
@@ -162,13 +149,15 @@ export default function App() {
               { role: "assistant", text: "Preview is live. Ready to keep building?" },
             ]);
           } else {
+            const elapsed = Math.max(1, Math.round((Date.now() - genStartedAt) / 1000));
             setMessages((prev) => [
               ...prev,
               {
                 role: "assistant",
-                text: `Done — I set up ${formatFileList(
-                  flat.map((f) => f.path)
-                )} and the preview is live. Tell me what to add or change next.`,
+                text: "Your project is ready — tell me what to add or change next.",
+                actionLabel: "Action history",
+                meta: `Gemini • Ran for ${elapsed}s`,
+                fileChanges: flat.map((f) => ({ path: f.path, status: "created" as const })),
               },
             ]);
           }
@@ -206,7 +195,7 @@ export default function App() {
   }
 
   async function handleChatSend(text: string, attachedFiles?: AttachedFile[]) {
-    if (busy) {
+    if (busy || isChatBusy) {
       setMessages((prev) => [
         ...prev,
         { role: "user", text },
@@ -220,33 +209,28 @@ export default function App() {
       ? `${text ? text + "\n" : ""}[Attached files: ${attachedFiles.map((f) => f.name).join(", ")}]`
       : text;
 
-    setMessages((prev) => [
-      ...prev,
-      { role: "user", text: userMsg },
-      { role: "assistant", text: "Working on it…" },
-    ]);
-
-    // If user attached files in chat, write them to the workspace directly
-    if (hasAttachments) {
-      for (const att of attachedFiles) {
-        await createFile(att.name, att.contents);
-      }
-      const container = getContainer();
-      const flat = await readAllFiles(container);
-      setFiles(flat);
-      if (activeProjectId) updateProjectFiles(activeProjectId, flat);
-    }
-
-    if (!text.trim()) {
-      setMessages((prev) => prev.filter((m) => m.text !== "Working on it…"));
-      return;
-    }
-
-    // Snapshot of what existed before this edit, so we can tell the person
-    // which files were newly created vs. modified once the AI responds.
-    const previousPaths = new Set(files.map((f) => f.path));
+    setMessages((prev) => [...prev, { role: "user", text: userMsg }]);
+    setIsChatBusy(true);
 
     try {
+      // If user attached files in chat, write them to the workspace directly
+      if (hasAttachments) {
+        for (const att of attachedFiles) {
+          await createFile(att.name, att.contents);
+        }
+        const container = getContainer();
+        const flat = await readAllFiles(container);
+        setFiles(flat);
+        if (activeProjectId) updateProjectFiles(activeProjectId, flat);
+      }
+
+      if (!text.trim()) return;
+
+      // Snapshot of what existed before this edit, so we can tell the person
+      // which files were newly created vs. modified once the AI responds.
+      const previousPaths = new Set(files.map((f) => f.path));
+      const startedAt = Date.now();
+
       const generatedFiles = await generateProject(text);
       await runGeneratedProject(generatedFiles, (line) => setLogs((prev) => [...prev, line]));
 
@@ -255,20 +239,39 @@ export default function App() {
       setFiles(flat);
       if (activeProjectId) updateProjectFiles(activeProjectId, flat);
 
-      const summary = summarizeChange(previousPaths, generatedFiles);
+      const fileChanges = generatedFiles.map((f) => ({
+        path: f.filePath,
+        status: previousPaths.has(f.filePath) ? ("modified" as const) : ("created" as const),
+      }));
+      const elapsed = Math.max(1, Math.round((Date.now() - startedAt) / 1000));
+
+      // Only add a written explanation when the change touches more than
+      // one file — a single-file tweak speaks for itself via the card.
+      const explanation =
+        fileChanges.length > 1
+          ? `Updated ${formatFileList(fileChanges.map((f) => f.path))} to handle that.`
+          : "";
 
       setMessages((prev) => [
-        ...prev.filter((m) => m.text !== "Working on it…"),
-        { role: "assistant", text: `Done — ${summary}. Preview refreshed, take a look.` },
+        ...prev,
+        {
+          role: "assistant",
+          text: explanation,
+          actionLabel: "Action history",
+          meta: `Gemini • Ran for ${elapsed}s`,
+          fileChanges,
+        },
       ]);
     } catch (error: any) {
       setMessages((prev) => [
-        ...prev.filter((m) => m.text !== "Working on it…"),
+        ...prev,
         {
           role: "assistant",
           text: `Ran into an issue: ${error?.message || String(error)}. Nothing was changed — try rephrasing and I'll give it another shot.`,
         },
       ]);
+    } finally {
+      setIsChatBusy(false);
     }
   }
 
@@ -279,6 +282,15 @@ export default function App() {
       if (activeProjectId) updateProjectFiles(activeProjectId, updated);
       return updated;
     });
+    setMessages((prev) => [
+      ...prev,
+      {
+        role: "assistant",
+        text: "I made some changes.",
+        actionLabel: "Manual edit",
+        fileChanges: [{ path, status: "modified" }],
+      },
+    ]);
   }
 
   async function handleRefreshFiles() {
@@ -312,6 +324,7 @@ export default function App() {
             title="Home"
           >
             <span style={styles.brandMark}>⟨/⟩</span>
+            <span style={styles.brandName}>Zephyr Code</span>
           </button>
 
           {screen === "workspace" && (
@@ -384,7 +397,7 @@ export default function App() {
           <Workspace
             messages={messages}
             onSend={handleChatSend}
-            busy={busy}
+            busy={busy || isChatBusy}
             previewUrl={previewUrl}
             previewNonce={previewNonce}
             files={files}
