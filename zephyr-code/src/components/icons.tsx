@@ -45,6 +45,9 @@ import {
   Mic,
   ChevronRight,
   Folder,
+  ClipboardEdit,
+  Wrench,
+  Pencil,
 } from "lucide-react";
 
 interface IconProps {
@@ -272,6 +275,18 @@ export const ChevronRightIcon = ({ size = 14, className, style }: IconProps) => 
 
 export const FolderClosedIcon = ({ size = 14, className, style }: IconProps) => (
   <Folder size={size} className={className} style={style} />
+);
+
+export const ActionHistoryIcon = ({ size = 14, className, style }: IconProps) => (
+  <ClipboardEdit size={size} className={className} style={style} />
+);
+
+export const BuiltIcon = ({ size = 14, className, style }: IconProps) => (
+  <Wrench size={size} className={className} style={style} />
+);
+
+export const EditPencilIcon = ({ size = 14, className, style }: IconProps) => (
+  <Pencil size={size} className={className} style={style} />
 );
 
 export function getFileIcon(filename: string, size = 13) {
