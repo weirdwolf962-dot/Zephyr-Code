@@ -15,7 +15,7 @@ import type { AttachedFile } from "./utils/fileAttachment";
 import LandingScreen from "./screens/LandingScreen";
 import Workspace, { type ChatMessage } from "./screens/Workspace";
 import LogConsole from "./components/LogConsole";
-import { DownloadIcon, HomeIcon, SparklesIcon } from "./components/icons";
+import { DownloadIcon, HomeIcon, SparklesIcon, BrandLogo } from "./components/icons";
 
 type Screen = "landing" | "building" | "workspace";
 
@@ -297,6 +297,12 @@ export default function App() {
     const container = getContainer();
     const flat = await readAllFiles(container);
     setFiles(flat);
+    // BUG FIX: creating/uploading/deleting files via the explorer only ever
+    // called this refresh, never persisted the result — so those changes
+    // were silently lost the next time the project was reopened (only
+    // Monaco saves and chat edits were being cached). Now every path that
+    // mutates the file tree ends up here, so all of them get saved.
+    if (activeProjectId) updateProjectFiles(activeProjectId, flat);
   }
 
   function handleClearLogs() {
@@ -323,7 +329,7 @@ export default function App() {
             onClick={() => setScreen("landing")}
             title="Home"
           >
-            <span style={styles.brandMark}>⟨/⟩</span>
+            <BrandLogo size={22} />
             <span style={styles.brandName}>Zephyr Code</span>
           </button>
 
@@ -448,13 +454,6 @@ const styles: Record<string, React.CSSProperties> = {
     border: "none",
     cursor: "pointer",
     padding: "2px",
-  },
-  brandMark: {
-    color: "#ff4e00",
-    fontFamily: "var(--font-mono)",
-    fontSize: "18px",
-    fontWeight: 800,
-    textShadow: "0 0 12px rgba(255, 78, 0, 0.5)",
   },
   brandName: {
     fontFamily: "var(--font-sans)",
