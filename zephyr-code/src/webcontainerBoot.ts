@@ -922,6 +922,25 @@ function toFileSystemTree(filesRecord: Record<string, string>): FileSystemTree {
 }
 
 export async function bootProject({ prompt = "hello world", initialFiles = [], onLog, onStageChange, onPreviewReady }: BootCallbacks) {
+  // BUG FIX: previously, opening a second project reused the already-booted
+  // WebContainer — container.mount() doesn't clear files that aren't in the
+  // new tree (so a prior project's leftover files stuck around), and a brand
+  // new "npm run dev" was spawned without ever stopping the previous one,
+  // which tried to bind the same port and crashed with EADDRINUSE. Tearing
+  // down and rebooting fresh here guarantees every project starts clean.
+  if (container) {
+    onLog("[WebContainer] Tearing down previous session…");
+    try {
+      await container.teardown();
+    } catch (err) {
+      console.warn("WebContainer teardown failed:", err);
+    }
+    container = null;
+    containerPromise = null;
+    unsubscribeServerReady?.();
+    unsubscribeServerReady = null;
+  }
+
   const starterFiles = generateStarterFiles(prompt);
   if (initialFiles && initialFiles.length > 0) {
     for (const f of initialFiles) {
@@ -1025,6 +1044,3 @@ async function bootVirtualSandbox(
   onLog(" Server listening at virtual://localhost:3000");
   virtualEnv.refreshPreview();
 }
-
-// Backward compatibility alias
-export const bootHelloWorld = (cb: BootCallbacks) => bootProject({ ...cb, prompt: "hello world" });
