@@ -21,7 +21,12 @@ import {
   UploadIcon,
   ChevronRightIcon,
   ChevronDownIcon,
+  ChevronUpIcon,
   FolderClosedIcon,
+  ActionHistoryIcon,
+  BuiltIcon,
+  EditPencilIcon,
+  CheckIcon,
   getFileIcon,
 } from "../components/icons";
 import BuildConsole from "../components/BuildConsole";
@@ -174,9 +179,20 @@ function renderWithInlineCode(text: string) {
 }
 
 export type ChatRole = "user" | "assistant" | "log";
+export type FileChangeStatus = "created" | "modified" | "deleted";
+export interface FileChange {
+  path: string;
+  status: FileChangeStatus;
+}
 export interface ChatMessage {
   role: ChatRole;
   text: string;
+  /** Files touched by this turn — renders as a collapsible "Action history" card. */
+  fileChanges?: FileChange[];
+  /** Card header label — defaults to "Action history"; use "Manual edit" for direct saves. */
+  actionLabel?: string;
+  /** Small line above the card, e.g. "Ran for 4s". */
+  meta?: string;
 }
 
 interface WorkspaceProps {
@@ -213,6 +229,7 @@ export default function Workspace({
   const [isChatDragging, setIsChatDragging] = useState(false);
   const [isExplorerDragging, setIsExplorerDragging] = useState(false);
   const [collapsedFolders, setCollapsedFolders] = useState<Set<string>>(new Set());
+  const [collapsedActionCards, setCollapsedActionCards] = useState<Set<number>>(new Set());
   const [viewMode, setViewMode] = useState<ViewMode>("split");
   const [device, setDevice] = useState<DevicePreset>("responsive");
   const [activeFilePath, setActiveFilePath] = useState<string | null>(null);
@@ -254,6 +271,15 @@ export default function Workspace({
       const next = new Set(prev);
       if (next.has(path)) next.delete(path);
       else next.add(path);
+      return next;
+    });
+  }
+
+  function toggleActionCard(index: number) {
+    setCollapsedActionCards((prev) => {
+      const next = new Set(prev);
+      if (next.has(index)) next.delete(index);
+      else next.add(index);
       return next;
     });
   }
@@ -478,7 +504,14 @@ export default function Workspace({
               <p style={styles.emptyChatGreeting}>How may the winds guide you?</p>
             </div>
           ) : (
-            messages.map((m, i) => <ChatBubble key={i} role={m.role} text={m.text} />)
+            messages.map((m, i) => (
+              <ChatBubble
+                key={i}
+                message={m}
+                expanded={!collapsedActionCards.has(i)}
+                onToggleActions={() => toggleActionCard(i)}
+              />
+            ))
           )}
 
           {busy && (
@@ -909,7 +942,17 @@ export default function Workspace({
   );
 }
 
-function ChatBubble({ role, text }: ChatMessage) {
+function ChatBubble({
+  message,
+  expanded,
+  onToggleActions,
+}: {
+  message: ChatMessage;
+  expanded: boolean;
+  onToggleActions: () => void;
+}) {
+  const { role, text, fileChanges, actionLabel, meta } = message;
+
   if (role === "log") {
     return (
       <div style={styles.logLine}>
@@ -918,12 +961,59 @@ function ChatBubble({ role, text }: ChatMessage) {
       </div>
     );
   }
+
   const isUser = role === "user";
+  const hasActions = !isUser && !!fileChanges && fileChanges.length > 0;
+  const editedFiles = fileChanges?.filter((f) => f.status !== "deleted") ?? [];
+
   return (
-    <div style={{ display: "flex", justifyContent: isUser ? "flex-end" : "flex-start" }}>
-      <div style={isUser ? styles.userBubble : styles.assistantBubble}>
-        <div style={styles.bubbleText}>{renderWithInlineCode(text)}</div>
-      </div>
+    <div style={{ display: "flex", flexDirection: "column", alignItems: isUser ? "flex-end" : "flex-start", gap: "6px" }}>
+      {hasActions && meta && <div style={styles.actionMeta}>{meta}</div>}
+
+      {hasActions && (
+        <div style={styles.actionCard} className="zephyr-card">
+          <button type="button" style={styles.actionCardHeader} onClick={onToggleActions}>
+            <span style={styles.actionCardHeaderLeft}>
+              <ActionHistoryIcon size={13} />
+              <span>{actionLabel || "Action history"}</span>
+            </span>
+            {expanded ? <ChevronUpIcon size={13} /> : <ChevronDownIcon size={13} />}
+          </button>
+
+          {expanded && (
+            <div style={styles.actionCardBody}>
+              {editedFiles.length > 0 && (
+                <div style={styles.actionCardSubheading}>
+                  <EditPencilIcon size={12} />
+                  <span>
+                    Edited {editedFiles.length} file{editedFiles.length > 1 ? "s" : ""}
+                  </span>
+                </div>
+              )}
+              {fileChanges!.map((f) => (
+                <div key={f.path} style={styles.actionFileRow}>
+                  <span style={styles.actionFilePath}>{f.path}</span>
+                  {f.status === "deleted" ? (
+                    <TrashIcon size={12} style={{ color: "rgba(255,255,255,0.35)" }} />
+                  ) : (
+                    <CheckIcon size={12} style={{ color: "#4ade80" }} />
+                  )}
+                </div>
+              ))}
+              <div style={styles.actionBuiltRow}>
+                <BuiltIcon size={12} />
+                <span>Built</span>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {text && (
+        <div style={isUser ? styles.userBubble : styles.assistantBubble}>
+          <div style={styles.bubbleText}>{renderWithInlineCode(text)}</div>
+        </div>
+      )}
     </div>
   );
 }
@@ -1024,6 +1114,77 @@ const styles: Record<string, React.CSSProperties> = {
   },
   bubbleText: {
     wordBreak: "break-word",
+  },
+  actionMeta: {
+    fontSize: "10.5px",
+    color: "rgba(255, 255, 255, 0.35)",
+    padding: "0 2px",
+  },
+  actionCard: {
+    width: "100%",
+    maxWidth: "92%",
+    background: "#100904",
+    overflow: "hidden",
+  },
+  actionCardHeader: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    width: "100%",
+    background: "transparent",
+    border: "none",
+    color: "rgba(255, 255, 255, 0.75)",
+    padding: "9px 12px",
+    fontSize: "12px",
+    fontWeight: 600,
+    cursor: "pointer",
+  },
+  actionCardHeaderLeft: {
+    display: "flex",
+    alignItems: "center",
+    gap: "7px",
+    color: "#ffb677",
+  },
+  actionCardBody: {
+    borderTop: "1px solid rgba(255, 255, 255, 0.06)",
+    padding: "8px 12px 10px",
+    display: "flex",
+    flexDirection: "column",
+    gap: "2px",
+  },
+  actionCardSubheading: {
+    display: "flex",
+    alignItems: "center",
+    gap: "6px",
+    fontSize: "11px",
+    color: "rgba(255, 255, 255, 0.5)",
+    padding: "4px 0 6px",
+  },
+  actionFileRow: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: "10px",
+    padding: "4px 6px",
+    borderRadius: "6px",
+    fontSize: "12px",
+    fontFamily: "var(--font-mono)",
+  },
+  actionFilePath: {
+    color: "rgba(255, 255, 255, 0.75)",
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap",
+  },
+  actionBuiltRow: {
+    display: "flex",
+    alignItems: "center",
+    gap: "6px",
+    fontSize: "11px",
+    color: "rgba(255, 255, 255, 0.45)",
+    padding: "6px 6px 0",
+    marginTop: "4px",
+    borderTop: "1px solid rgba(255, 255, 255, 0.05)",
   },
   inlineCode: {
     background: "rgba(255,255,255,0.1)",
