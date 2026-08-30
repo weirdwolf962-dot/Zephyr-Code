@@ -20,28 +20,17 @@ import {
   Sparkles,
   ChevronDown,
   ChevronUp,
-  Cpu,
-  Layers,
-  FolderOpen,
   X,
   Smartphone,
   Tablet,
   Monitor,
-  AlertTriangle,
-  Info,
-  Maximize2,
-  Minimize2,
-  RefreshCw,
   Search,
-  MessageSquare,
   Send,
   Zap,
-  Paperclip,
   Upload,
   FilePlus,
   Database,
   Image as ImageIcon,
-  FileCheck,
   Mic,
   ChevronRight,
   Folder,
@@ -56,24 +45,12 @@ interface IconProps {
   style?: React.CSSProperties;
 }
 
-export const PaperclipIcon = ({ size = 14, className, style }: IconProps) => (
-  <Paperclip size={size} className={className} style={style} />
-);
-
 export const UploadIcon = ({ size = 14, className, style }: IconProps) => (
   <Upload size={size} className={className} style={style} />
 );
 
 export const FilePlusIcon = ({ size = 14, className, style }: IconProps) => (
   <FilePlus size={size} className={className} style={style} />
-);
-
-export const DatabaseIcon = ({ size = 14, className, style }: IconProps) => (
-  <Database size={size} className={className} style={style} />
-);
-
-export const FileCheckIcon = ({ size = 14, className, style }: IconProps) => (
-  <FileCheck size={size} className={className} style={style} />
 );
 
 export const DownloadIcon = ({ size = 16, className, style }: IconProps) => (
@@ -217,18 +194,6 @@ export const ChevronUpIcon = ({ size = 14, className, style }: IconProps) => (
   <ChevronUp size={size} className={className} style={style} />
 );
 
-export const CpuIcon = ({ size = 14, className, style }: IconProps) => (
-  <Cpu size={size} className={className} style={style} />
-);
-
-export const LayersIcon = ({ size = 14, className, style }: IconProps) => (
-  <Layers size={size} className={className} style={style} />
-);
-
-export const FolderIcon = ({ size = 14, className, style }: IconProps) => (
-  <FolderOpen size={size} className={className} style={style} />
-);
-
 export const MobileIcon = ({ size = 14, className, style }: IconProps) => (
   <Smartphone size={size} className={className} style={style} />
 );
@@ -241,20 +206,8 @@ export const DesktopIcon = ({ size = 14, className, style }: IconProps) => (
   <Monitor size={size} className={className} style={style} />
 );
 
-export const WarningIcon = ({ size = 14, className, style }: IconProps) => (
-  <AlertTriangle size={size} className={className} style={style} />
-);
-
-export const InfoIcon = ({ size = 14, className, style }: IconProps) => (
-  <Info size={size} className={className} style={style} />
-);
-
 export const SearchIcon = ({ size = 14, className, style }: IconProps) => (
   <Search size={size} className={className} style={style} />
-);
-
-export const MessageIcon = ({ size = 14, className, style }: IconProps) => (
-  <MessageSquare size={size} className={className} style={style} />
 );
 
 export const SendIcon = ({ size = 14, className, style }: IconProps) => (
