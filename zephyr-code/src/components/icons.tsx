@@ -42,6 +42,9 @@ import {
   Database,
   Image as ImageIcon,
   FileCheck,
+  Mic,
+  ChevronRight,
+  Folder,
 } from "lucide-react";
 
 interface IconProps {
@@ -257,6 +260,18 @@ export const SendIcon = ({ size = 14, className, style }: IconProps) => (
 
 export const ZapIcon = ({ size = 14, className, style }: IconProps) => (
   <Zap size={size} className={className} style={style} />
+);
+
+export const MicIcon = ({ size = 14, className, style }: IconProps) => (
+  <Mic size={size} className={className} style={style} />
+);
+
+export const ChevronRightIcon = ({ size = 14, className, style }: IconProps) => (
+  <ChevronRight size={size} className={className} style={style} />
+);
+
+export const FolderClosedIcon = ({ size = 14, className, style }: IconProps) => (
+  <Folder size={size} className={className} style={style} />
 );
 
 export function getFileIcon(filename: string, size = 13) {
